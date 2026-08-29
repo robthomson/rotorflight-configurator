@@ -4,7 +4,9 @@
   import { SvelteURL } from "svelte/reactivity";
   import { slide } from "svelte/transition";
 
+  import Meter from "@/components/Meter.svelte";
   import Page from "@/components/Page.svelte";
+  import Section from "@/components/Section.svelte";
 
   import { DarkTheme } from "@/js/DarkTheme.js";
   import { CONFIGURATOR } from "@/js/configurator.svelte.js";
@@ -31,9 +33,29 @@
     TelemetryType,
   } from "./protocols.js";
 
+  // Small, static lookup - mirrors src/js/tabs/configuration.js's own local
+  // uartNames const (not exported from that jQuery-tab file, so duplicated
+  // here rather than refactoring an unrelated tab to export it).
+  const UART_NAMES = {
+    0: "UART1",
+    1: "UART2",
+    2: "UART3",
+    3: "UART4",
+    4: "UART5",
+    5: "UART6",
+    6: "UART7",
+    7: "UART8",
+    8: "UART9",
+    9: "UART10",
+    20: "USB VCP",
+    30: "SOFTSERIAL1",
+    31: "SOFTSERIAL2",
+  };
+
   let loading = $state(true);
   let initialState;
   let sensorUpdateIntervalId;
+  let backupRxPollerIntervalId;
 
   function snapshotState() {
     return $state.snapshot({
@@ -74,10 +96,20 @@
       await MSP.promise(MSPCodes.MSP_RC_COMMAND);
       await MSP.promise(MSPCodes.MSP_ANALOG);
     }, 25);
+
+    if (hasBackupRxPort) {
+      await MSP.promise(MSPCodes.MSP2_GET_SBUS_INPUT_STATUS);
+      // 200ms rather than the 25ms main-channel poll above - this only needs to
+      // look live when the box below is expanded, not drive a hot loop always.
+      backupRxPollerIntervalId = setInterval(() => {
+        MSP.promise(MSPCodes.MSP2_GET_SBUS_INPUT_STATUS);
+      }, 200);
+    }
   });
 
   onDestroy(() => {
     clearInterval(sensorUpdateIntervalId);
+    clearInterval(backupRxPollerIntervalId);
   });
 
   export async function onSave() {
@@ -136,6 +168,44 @@
       (port) => port.functionMask & SERIALRX_FUNCTION,
     ),
   );
+
+  // Serial Rx (Backup, SBUS) - see FUNCTION_RX_SBUS_INPUT in rotorflight-firmware.
+  // No dedicated feature bit, same as SERIALRX_FUNCTION above: the port assignment
+  // itself is the enablement.
+  const RX_SBUS_INPUT_FUNCTION = 4194304;
+  let hasBackupRxPort = $derived(
+    FC.SERIAL_CONFIG.ports.some(
+      (port) => port.functionMask & RX_SBUS_INPUT_FUNCTION,
+    ),
+  );
+  let backupRxPort = $derived(
+    FC.SERIAL_CONFIG.ports.find(
+      (port) => port.functionMask & RX_SBUS_INPUT_FUNCTION,
+    ),
+  );
+  let backupRxStatus = $derived(
+    FC.SBUS_INPUT_STATUS ?? {
+      enabled: false,
+      linkUp: false,
+      activeSource: "main",
+      channels: [],
+    },
+  );
+
+  let backupRxExpanded = $state(false);
+
+  function toggleBackupRxExpanded() {
+    backupRxExpanded = !backupRxExpanded;
+  }
+
+  const BACKUP_RX_METER_MIN = 750;
+  const BACKUP_RX_METER_MAX = 2250;
+  function backupRxChannelWidth(value) {
+    return (
+      (100 * (value - BACKUP_RX_METER_MIN)) /
+      (BACKUP_RX_METER_MAX - BACKUP_RX_METER_MIN)
+    ).clamp(0, 100);
+  }
 
   let extTelemProto = $derived.by(() => {
     for (const proto of EXTERNAL_TELEMETRY_PROTOCOLS) {
@@ -333,6 +403,64 @@
     </div>
     <div>
       <ChannelAssignment />
+      {#if hasBackupRxPort}
+        <Section label="tabSbusInputStatus">
+          <div class="backup-rx-summary">
+            <span
+              class="badge"
+              class:up={backupRxStatus.linkUp}
+              class:down={!backupRxStatus.linkUp}
+            >
+              {backupRxPort
+                ? (UART_NAMES[backupRxPort.identifier] ?? backupRxPort.identifier)
+                : ""}
+              &mdash;
+              {backupRxStatus.linkUp
+                ? $i18n.t("sbusInputStatusLinkUp")
+                : $i18n.t("sbusInputStatusLinkDown")}
+            </span>
+            <span
+              class="badge"
+              class:active={backupRxStatus.activeSource === "fallback"}
+            >
+              {backupRxStatus.activeSource === "fallback"
+                ? $i18n.t("sbusInputStatusActiveFallback")
+                : $i18n.t("sbusInputStatusActiveMain")}
+            </span>
+            <div class="grow"></div>
+            <button
+              class="icon fas"
+              class:fa-chevron-down={!backupRxExpanded}
+              class:fa-chevron-up={backupRxExpanded}
+              onclick={toggleBackupRxExpanded}
+              aria-label={backupRxExpanded
+                ? $i18n.t("receiverBackupRxHide")
+                : $i18n.t("receiverBackupRxViewDetails")}
+              title={backupRxExpanded
+                ? $i18n.t("receiverBackupRxHide")
+                : $i18n.t("receiverBackupRxViewDetails")}
+            ></button>
+          </div>
+          {#if backupRxExpanded}
+            <div class="backup-rx-details" transition:slide|global>
+              {#if backupRxStatus.channels.length === 0}
+                <p class="note">{$i18n.t("sbusInputStatusEmpty")}</p>
+              {:else}
+                <div class="backup-rx-channels">
+                  {#each backupRxStatus.channels as value, index (index)}
+                    <Meter
+                      --fill-hue={(index * 20).toString()}
+                      title={`CH${index + 1}`}
+                      leftLabel={value}
+                      value={backupRxChannelWidth(value)}
+                    />
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {/if}
+        </Section>
+      {/if}
       <ModelPreview />
     </div>
   </div>
@@ -356,5 +484,83 @@
 
   .btn {
     @extend %button;
+  }
+
+  .backup-rx-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .backup-rx-details {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .backup-rx-channels {
+    display: grid;
+    gap: 4px;
+    margin-top: 8px;
+  }
+
+  .note {
+    margin: 0;
+    color: var(--color-text-soft);
+  }
+
+  .badge {
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--color-text);
+    background-color: var(--color-bg);
+    border: 1px solid var(--color-border);
+  }
+
+  .badge.up {
+    color: var(--color-border-accent);
+    border-color: var(--color-border-accent);
+  }
+
+  // "active" here means the SBUS-in link is the one currently driving the
+  // aircraft (main link down) -- worth calling out the same way "down" is.
+  .badge.down,
+  .badge.active {
+    color: var(--color-danger, var(--color-border-accent));
+    border-color: var(--color-danger, var(--color-border-accent));
+  }
+
+  // Matches Section.svelte's own header icon button exactly, for the
+  // expand/collapse chevron - same look as the rest of the app's
+  // disclosure controls, not a one-off.
+  .icon {
+    background: none;
+    border: none;
+    padding: 8px;
+    margin: 0;
+    font-size: 1rem;
+    cursor: pointer;
+
+    -webkit-tap-highlight-color: transparent;
+
+    :global(html[data-theme="light"]) & {
+      color: var(--color-neutral-400);
+    }
+
+    :global(html[data-theme="dark"]) & {
+      color: var(--color-neutral-500);
+    }
+
+    &:hover {
+      :global(html[data-theme="light"]) & {
+        color: var(--color-neutral-500);
+      }
+
+      :global(html[data-theme="dark"]) & {
+        color: var(--color-neutral-500);
+      }
+    }
   }
 </style>

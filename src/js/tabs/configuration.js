@@ -280,6 +280,7 @@ tab.initialize = function (callback) {
         { id: 524288,excl: 524288,  name: 'FBUS_OUT',             type: portTypes.AUTO },
         { id: 1048576, excl: 1048576, name: 'SPORT_MASTER',       type: portTypes.AUTO },
         { id: 2097152,excl: 2097152,name: 'SRXL2_ESC',            type: portTypes.AUTO },
+        { id: 4194304,excl: 4194304,name: 'RX_SBUS_INPUT',        type: portTypes.AUTO },
         { id: 4,     excl: 4668,    name: 'TELEMETRY_FRSKY',      type: portTypes.TELEM },
         { id: 32,    excl: 4668,    name: 'TELEMETRY_SMARTPORT',  type: portTypes.TELEM },
         { id: 4096,  excl: 4668,    name: 'TELEMETRY_IBUS',       type: portTypes.TELEM },
@@ -488,7 +489,8 @@ tab.initialize = function (callback) {
                         (func.name !== 'SBUS_OUT' || semver.gte(FC.CONFIG.apiVersion, API_VERSION_12_7)) &&
                         (func.name !== 'FBUS_OUT' || semver.gte(FC.CONFIG.apiVersion, API_VERSION_12_9)) &&
                         (func.name !== 'SPORT_MASTER' || semver.gte(FC.CONFIG.apiVersion, API_VERSION_12_9)) &&
-                        (func.name !== 'SRXL2_ESC' || semver.gte(FC.CONFIG.apiVersion, API_VERSION_12_10))
+                        (func.name !== 'SRXL2_ESC' || semver.gte(FC.CONFIG.apiVersion, API_VERSION_12_10)) &&
+                        (func.name !== 'RX_SBUS_INPUT' || semver.gte(FC.CONFIG.apiVersion, API_VERSION_12_10))
                     ) {
                     funcElement.append(`<option value="${func.id}">${funcName}</option>`);
                 }

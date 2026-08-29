@@ -68,6 +68,7 @@ export function MspHelper() {
         'SBUS_OUT': 18,
         'FBUS_OUT': 19,
         'SPORT_MASTER': 20,
+        'RX_SBUS_INPUT': 22,
     };
 
     self.REBOOT_TYPES = {
@@ -376,6 +377,21 @@ MspHelper.prototype.process_data = function(dataHandler) {
 
             case MSPCodes.MSP2_SET_SMARTFUEL_CONFIG: {
                 console.log('Smart Fuel configuration saved');
+                break;
+            }
+
+            case MSPCodes.MSP2_GET_SBUS_INPUT_STATUS: {
+                data.readU8(); // payload version, unused for now
+                const enabled = data.readU8() !== 0;
+                const linkUp = data.readU8() !== 0;
+                const activeSource = data.readU8() !== 0 ? 'fallback' : 'main';
+                const channelCount = data.readU8();
+                const channels = [];
+                for (let i = 0; i < channelCount; i++) {
+                    channels.push(data.readU16());
+                }
+
+                FC.SBUS_INPUT_STATUS = { enabled, linkUp, activeSource, channels };
                 break;
             }
 

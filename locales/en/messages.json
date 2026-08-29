@@ -1598,6 +1598,9 @@
     "portsFunction_SRXL2_ESC": {
         "message": "SRXL2 ESC"
     },
+    "portsFunction_RX_SBUS_INPUT": {
+        "message": "Serial Rx (Backup, SBUS)"
+    },
     "portsFunction_CUSTOM": {
         "message": "Custom"
     },
@@ -2276,6 +2279,30 @@
     },
     "receiverButtonSticks": {
         "message": "Control sticks"
+    },
+    "tabSbusInputStatus": {
+        "message": "Serial Rx (Backup)"
+    },
+    "sbusInputStatusLinkUp": {
+        "message": "Link: Up"
+    },
+    "sbusInputStatusLinkDown": {
+        "message": "Link: Down"
+    },
+    "sbusInputStatusActiveMain": {
+        "message": "Active Source: Main RX"
+    },
+    "sbusInputStatusActiveFallback": {
+        "message": "Active Source: SBUS-In"
+    },
+    "sbusInputStatusEmpty": {
+        "message": "No channel data yet -- check the satellite is bound and wired to this port."
+    },
+    "receiverBackupRxViewDetails": {
+        "message": "View Details"
+    },
+    "receiverBackupRxHide": {
+        "message": "Hide"
     },
     "receiverModelPreview": {
         "message": "Preview"
