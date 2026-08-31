@@ -98,11 +98,11 @@
     }, 25);
 
     if (hasBackupRxPort) {
-      await MSP.promise(MSPCodes.MSP2_GET_SBUS_INPUT_STATUS);
+      await MSP.promise(MSPCodes.MSP2_GET_RX_INPUT_BACKUP_STATUS);
       // 200ms rather than the 25ms main-channel poll above - this only needs to
       // look live when the box below is expanded, not drive a hot loop always.
       backupRxPollerIntervalId = setInterval(() => {
-        MSP.promise(MSPCodes.MSP2_GET_SBUS_INPUT_STATUS);
+        MSP.promise(MSPCodes.MSP2_GET_RX_INPUT_BACKUP_STATUS);
       }, 200);
     }
   });
@@ -169,28 +169,33 @@
     ),
   );
 
-  // Serial Rx (Backup, SBUS) - see FUNCTION_RX_SBUS_INPUT in rotorflight-firmware.
+  // Serial Rx (Backup) - see FUNCTION_RX_INPUT_BACKUP in rotorflight-firmware.
   // No dedicated feature bit, same as SERIALRX_FUNCTION above: the port assignment
   // itself is the enablement.
-  const RX_SBUS_INPUT_FUNCTION = 4194304;
+  const RX_INPUT_BACKUP_FUNCTION = 4194304;
   let hasBackupRxPort = $derived(
     FC.SERIAL_CONFIG.ports.some(
-      (port) => port.functionMask & RX_SBUS_INPUT_FUNCTION,
+      (port) => port.functionMask & RX_INPUT_BACKUP_FUNCTION,
     ),
   );
   let backupRxPort = $derived(
     FC.SERIAL_CONFIG.ports.find(
-      (port) => port.functionMask & RX_SBUS_INPUT_FUNCTION,
+      (port) => port.functionMask & RX_INPUT_BACKUP_FUNCTION,
     ),
   );
   let backupRxStatus = $derived(
-    FC.SBUS_INPUT_STATUS ?? {
+    FC.RX_INPUT_BACKUP_STATUS ?? {
       enabled: false,
+      provider: 0,
       linkUp: false,
       activeSource: "main",
       channels: [],
     },
   );
+
+  // Keep in sync with rotorflight-firmware's cli/settings.c
+  // lookupTableRxInputBackupProvider[] (same order) - only SBUS exists today.
+  const RX_INPUT_BACKUP_PROVIDER_NAMES = ["SBUS"];
 
   let backupRxExpanded = $state(false);
 
@@ -404,28 +409,32 @@
     <div>
       <ChannelAssignment />
       {#if hasBackupRxPort}
-        <Section label="tabSbusInputStatus">
+        <Section label="tabRxInputBackupStatus">
           <div class="backup-rx-summary">
+            <span class="badge">
+              {RX_INPUT_BACKUP_PROVIDER_NAMES[backupRxStatus.provider] ?? "?"}
+            </span>
             <span
               class="badge"
               class:up={backupRxStatus.linkUp}
               class:down={!backupRxStatus.linkUp}
             >
               {backupRxPort
-                ? (UART_NAMES[backupRxPort.identifier] ?? backupRxPort.identifier)
+                ? (UART_NAMES[backupRxPort.identifier] ??
+                  backupRxPort.identifier)
                 : ""}
               &mdash;
               {backupRxStatus.linkUp
-                ? $i18n.t("sbusInputStatusLinkUp")
-                : $i18n.t("sbusInputStatusLinkDown")}
+                ? $i18n.t("rxInputBackupStatusLinkUp")
+                : $i18n.t("rxInputBackupStatusLinkDown")}
             </span>
             <span
               class="badge"
-              class:active={backupRxStatus.activeSource === "fallback"}
+              class:active={backupRxStatus.activeSource === "backup"}
             >
-              {backupRxStatus.activeSource === "fallback"
-                ? $i18n.t("sbusInputStatusActiveFallback")
-                : $i18n.t("sbusInputStatusActiveMain")}
+              {backupRxStatus.activeSource === "backup"
+                ? $i18n.t("rxInputBackupStatusActiveBackup")
+                : $i18n.t("rxInputBackupStatusActiveMain")}
             </span>
             <div class="grow"></div>
             <button
@@ -444,7 +453,7 @@
           {#if backupRxExpanded}
             <div class="backup-rx-details" transition:slide|global>
               {#if backupRxStatus.channels.length === 0}
-                <p class="note">{$i18n.t("sbusInputStatusEmpty")}</p>
+                <p class="note">{$i18n.t("rxInputBackupStatusEmpty")}</p>
               {:else}
                 <div class="backup-rx-channels">
                   {#each backupRxStatus.channels as value, index (index)}
@@ -524,17 +533,17 @@
     border-color: var(--color-border-accent);
   }
 
-  // "active" here means the SBUS-in link is the one currently driving the
-  // aircraft (main link down) -- worth calling out the same way "down" is.
+  /* "active" here means the backup link is the one currently driving the
+     aircraft (main link down) -- worth calling out the same way "down" is. */
   .badge.down,
   .badge.active {
     color: var(--color-danger, var(--color-border-accent));
     border-color: var(--color-danger, var(--color-border-accent));
   }
 
-  // Matches Section.svelte's own header icon button exactly, for the
-  // expand/collapse chevron - same look as the rest of the app's
-  // disclosure controls, not a one-off.
+  /* Matches Section.svelte's own header icon button exactly, for the
+     expand/collapse chevron - same look as the rest of the app's
+     disclosure controls, not a one-off. */
   .icon {
     background: none;
     border: none;

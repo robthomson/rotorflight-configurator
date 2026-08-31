@@ -215,5 +215,5 @@ export const MSPCodes = {
     MSP2_SMARTFUEL_CONFIG:              0x4000,
     MSP2_SET_SMARTFUEL_CONFIG:          0x4001,
 
-    MSP2_GET_SBUS_INPUT_STATUS:         0x5F0B,
+    MSP2_GET_RX_INPUT_BACKUP_STATUS:    0x5F0B,
 };
