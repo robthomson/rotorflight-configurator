@@ -4,9 +4,12 @@
   import { SvelteURL } from "svelte/reactivity";
   import { slide } from "svelte/transition";
 
-  import Meter from "@/components/Meter.svelte";
+  import Field from "@/components/Field.svelte";
   import Page from "@/components/Page.svelte";
   import Section from "@/components/Section.svelte";
+  import SubSection from "@/components/SubSection.svelte";
+  import Switch from "@/components/Switch.svelte";
+  import Tooltip from "@/components/Tooltip.svelte";
 
   import { DarkTheme } from "@/js/DarkTheme.js";
   import { CONFIGURATOR } from "@/js/configurator.svelte.js";
@@ -33,25 +36,6 @@
     TelemetryType,
   } from "./protocols.js";
 
-  // Small, static lookup - mirrors src/js/tabs/configuration.js's own local
-  // uartNames const (not exported from that jQuery-tab file, so duplicated
-  // here rather than refactoring an unrelated tab to export it).
-  const UART_NAMES = {
-    0: "UART1",
-    1: "UART2",
-    2: "UART3",
-    3: "UART4",
-    4: "UART5",
-    5: "UART6",
-    6: "UART7",
-    7: "UART8",
-    8: "UART9",
-    9: "UART10",
-    20: "USB VCP",
-    30: "SOFTSERIAL1",
-    31: "SOFTSERIAL2",
-  };
-
   let loading = $state(true);
   let initialState;
   let sensorUpdateIntervalId;
@@ -64,6 +48,7 @@
       RC_CONFIG: FC.RC_CONFIG,
       RX_CONFIG: FC.RX_CONFIG,
       TELEMETRY_CONFIG: FC.TELEMETRY_CONFIG,
+      RX_INPUT_BACKUP_CONFIG: FC.RX_INPUT_BACKUP_CONFIG,
       features: FC.FEATURE_CONFIG.features.bitfield,
     });
   }
@@ -98,13 +83,26 @@
     }, 25);
 
     if (hasBackupRxPort) {
-      await MSP.promise(MSPCodes.MSP2_GET_RX_INPUT_BACKUP_STATUS);
-      // 200ms rather than the 25ms main-channel poll above - this only needs to
-      // look live when the box below is expanded, not drive a hot loop always.
-      backupRxPollerIntervalId = setInterval(() => {
-        MSP.promise(MSPCodes.MSP2_GET_RX_INPUT_BACKUP_STATUS);
-      }, 200);
+      await MSP.promise(MSPCodes.MSP2_GET_RX_INPUT_BACKUP_CONFIG);
     }
+
+    // Polled unconditionally, not just when hasBackupRxPort - mainLinkUp
+    // (the primary RX's own live signal state) is shown in the Serial RX #1
+    // box regardless of whether a backup port is configured at all; the
+    // backup-specific fields just stay at their disabled/empty defaults when
+    // it isn't.
+    await MSP.promise(MSPCodes.MSP2_GET_RX_INPUT_BACKUP_STATUS);
+    // 200ms rather than the 25ms main-channel poll above - this only needs to
+    // look live for a status badge, not drive a hot loop always.
+    backupRxPollerIntervalId = setInterval(() => {
+      MSP.promise(MSPCodes.MSP2_GET_RX_INPUT_BACKUP_STATUS);
+    }, 200);
+
+    // initialState is snapshotted above before this block runs, so re-snapshot
+    // now that RX_INPUT_BACKUP_CONFIG has actually been fetched - otherwise
+    // isDirty()/onRevert() would compare against the pre-fetch default values
+    // for a tab that hadn't even loaded its own config yet.
+    initialState = snapshotState();
   });
 
   onDestroy(() => {
@@ -123,6 +121,9 @@
     await save(MSPCodes.MSP_SET_RSSI_CONFIG);
     await save(MSPCodes.MSP_SET_TELEMETRY_CONFIG);
     await save(MSPCodes.MSP_SET_FEATURE_CONFIG);
+    if (hasBackupRxPort) {
+      await save(MSPCodes.MSP2_SET_RX_INPUT_BACKUP_CONFIG);
+    }
 
     await MSP.promise(MSPCodes.MSP_EEPROM_WRITE);
     GUI.log($i18n.t("eepromSaved"));
@@ -137,6 +138,10 @@
     Object.assign(FC.RC_CONFIG, initialState.RC_CONFIG);
     Object.assign(FC.RX_CONFIG, initialState.RX_CONFIG);
     Object.assign(FC.TELEMETRY_CONFIG, initialState.TELEMETRY_CONFIG);
+    Object.assign(
+      FC.RX_INPUT_BACKUP_CONFIG,
+      initialState.RX_INPUT_BACKUP_CONFIG,
+    );
     FC.FEATURE_CONFIG.features.bitfield = initialState.features;
   }
 
@@ -178,14 +183,10 @@
       (port) => port.functionMask & RX_INPUT_BACKUP_FUNCTION,
     ),
   );
-  let backupRxPort = $derived(
-    FC.SERIAL_CONFIG.ports.find(
-      (port) => port.functionMask & RX_INPUT_BACKUP_FUNCTION,
-    ),
-  );
   let backupRxStatus = $derived(
     FC.RX_INPUT_BACKUP_STATUS ?? {
       enabled: false,
+      mainLinkUp: null,
       provider: 0,
       linkUp: false,
       activeSource: "main",
@@ -194,23 +195,18 @@
   );
 
   // Keep in sync with rotorflight-firmware's cli/settings.c
-  // lookupTableRxInputBackupProvider[] (same order) - only SBUS exists today.
-  const RX_INPUT_BACKUP_PROVIDER_NAMES = ["SBUS"];
-
-  let backupRxExpanded = $state(false);
-
-  function toggleBackupRxExpanded() {
-    backupRxExpanded = !backupRxExpanded;
-  }
-
-  const BACKUP_RX_METER_MIN = 750;
-  const BACKUP_RX_METER_MAX = 2250;
-  function backupRxChannelWidth(value) {
-    return (
-      (100 * (value - BACKUP_RX_METER_MIN)) /
-      (BACKUP_RX_METER_MAX - BACKUP_RX_METER_MIN)
-    ).clamp(0, 100);
-  }
+  // lookupTableRxInputBackupProvider[] (same order, NONE=0 first) - this
+  // array's index must match the firmware enum. Display text matches
+  // RX_PROTOCOLS' own naming (./protocols.js) for the same protocols, so the
+  // two dropdowns read consistently rather than one using full names and the
+  // other short codes.
+  const RX_INPUT_BACKUP_PROVIDER_NAMES = [
+    "None",
+    "Futaba S.BUS",
+    "FrSky FBUS",
+    "FrSky F.PORT",
+    "FrSky F.PORT2",
+  ];
 
   let extTelemProto = $derived.by(() => {
     for (const proto of EXTERNAL_TELEMETRY_PROTOCOLS) {
@@ -393,7 +389,82 @@
 <Page {header} {loading} toolbar={showToolbar && toolbar}>
   <div class="content">
     <div>
-      <ReceiverType {rxProtoIndex} {hasSerialRxPort} {setRxProto} />
+      <ReceiverType
+        {rxProtoIndex}
+        {hasSerialRxPort}
+        {setRxProto}
+        mainLinkUp={backupRxStatus.mainLinkUp}
+        {hasBackupRxPort}
+        backupActive={backupRxStatus.activeSource === "backup"}
+      />
+      {#if hasBackupRxPort}
+        {#snippet backupConfigHeader()}
+          <div class="section-header">
+            <span class="title">{$i18n.t("tabRxInputBackupConfig")}</span>
+            <div class="grow"></div>
+            <span
+              class="badge"
+              class:up={backupRxStatus.linkUp}
+              class:down={!backupRxStatus.linkUp}
+            >
+              {backupRxStatus.linkUp
+                ? $i18n.t("rxInputBackupStatusLinkUp")
+                : $i18n.t("rxInputBackupStatusLinkDown")}
+            </span>
+            <span
+              class="badge"
+              class:active={backupRxStatus.activeSource === "backup"}
+            >
+              {backupRxStatus.activeSource === "backup"
+                ? $i18n.t("rxInputBackupStatusActiveBackup")
+                : $i18n.t("rxInputBackupStatusActiveMain")}
+            </span>
+          </div>
+        {/snippet}
+        <Section header={backupConfigHeader}>
+          <SubSection>
+            <Field id="backup-rx-provider" label="receiverBackupRxProvider">
+              <select
+                id="backup-rx-provider"
+                bind:value={FC.RX_INPUT_BACKUP_CONFIG.provider}
+              >
+                {#each RX_INPUT_BACKUP_PROVIDER_NAMES as name, i (name)}
+                  <option value={i}>{name}</option>
+                {/each}
+              </select>
+            </Field>
+          </SubSection>
+          <SubSection label="receiverBackupRxSignaling">
+            <Field id="backup-rx-inverted" label="receiverBackupRxInverted">
+              {#snippet tooltip()}
+                <Tooltip help="receiverBackupRxInvertedHelp" />
+              {/snippet}
+              <Switch
+                id="backup-rx-inverted"
+                bind:checked={FC.RX_INPUT_BACKUP_CONFIG.inverted}
+              />
+            </Field>
+            <Field id="backup-rx-halfduplex" label="receiverBackupRxHalfDuplex">
+              {#snippet tooltip()}
+                <Tooltip help="receiverBackupRxHalfDuplexHelp" />
+              {/snippet}
+              <Switch
+                id="backup-rx-halfduplex"
+                bind:checked={FC.RX_INPUT_BACKUP_CONFIG.halfDuplex}
+              />
+            </Field>
+            <Field id="backup-rx-pinswap" label="receiverBackupRxPinSwap">
+              {#snippet tooltip()}
+                <Tooltip help="receiverBackupRxPinSwapHelp" />
+              {/snippet}
+              <Switch
+                id="backup-rx-pinswap"
+                bind:checked={FC.RX_INPUT_BACKUP_CONFIG.pinSwap}
+              />
+            </Field>
+          </SubSection>
+        </Section>
+      {/if}
       <ChannelRange />
       {#if telemetry}
         <div transition:slide>
@@ -408,68 +479,6 @@
     </div>
     <div>
       <ChannelAssignment />
-      {#if hasBackupRxPort}
-        <Section label="tabRxInputBackupStatus">
-          <div class="backup-rx-summary">
-            <span class="badge">
-              {RX_INPUT_BACKUP_PROVIDER_NAMES[backupRxStatus.provider] ?? "?"}
-            </span>
-            <span
-              class="badge"
-              class:up={backupRxStatus.linkUp}
-              class:down={!backupRxStatus.linkUp}
-            >
-              {backupRxPort
-                ? (UART_NAMES[backupRxPort.identifier] ??
-                  backupRxPort.identifier)
-                : ""}
-              &mdash;
-              {backupRxStatus.linkUp
-                ? $i18n.t("rxInputBackupStatusLinkUp")
-                : $i18n.t("rxInputBackupStatusLinkDown")}
-            </span>
-            <span
-              class="badge"
-              class:active={backupRxStatus.activeSource === "backup"}
-            >
-              {backupRxStatus.activeSource === "backup"
-                ? $i18n.t("rxInputBackupStatusActiveBackup")
-                : $i18n.t("rxInputBackupStatusActiveMain")}
-            </span>
-            <div class="grow"></div>
-            <button
-              class="icon fas"
-              class:fa-chevron-down={!backupRxExpanded}
-              class:fa-chevron-up={backupRxExpanded}
-              onclick={toggleBackupRxExpanded}
-              aria-label={backupRxExpanded
-                ? $i18n.t("receiverBackupRxHide")
-                : $i18n.t("receiverBackupRxViewDetails")}
-              title={backupRxExpanded
-                ? $i18n.t("receiverBackupRxHide")
-                : $i18n.t("receiverBackupRxViewDetails")}
-            ></button>
-          </div>
-          {#if backupRxExpanded}
-            <div class="backup-rx-details" transition:slide|global>
-              {#if backupRxStatus.channels.length === 0}
-                <p class="note">{$i18n.t("rxInputBackupStatusEmpty")}</p>
-              {:else}
-                <div class="backup-rx-channels">
-                  {#each backupRxStatus.channels as value, index (index)}
-                    <Meter
-                      --fill-hue={(index * 20).toString()}
-                      title={`CH${index + 1}`}
-                      leftLabel={value}
-                      value={backupRxChannelWidth(value)}
-                    />
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          {/if}
-        </Section>
-      {/if}
       <ModelPreview />
     </div>
   </div>
@@ -482,40 +491,19 @@
     column-gap: var(--section-gap);
   }
 
-  .help-btn {
-    padding: 4px 8px;
-    min-width: 60px;
-  }
+  /* Custom Section header (badges live here, not in the body) - replicates
+     %section-header (_global.scss) plus a right-aligned badge row, kept
+     compact rather than adding a separate summary line below the title.
+     Mirrors ReceiverType.svelte's own identical block for its RX #1 header. */
+  .section-header {
+    @extend %section-header;
 
-  .grow {
-    flex-grow: 1;
-  }
-
-  .btn {
-    @extend %button;
-  }
-
-  .backup-rx-summary {
-    display: flex;
-    align-items: center;
+    padding-right: 8px;
     gap: 8px;
   }
 
-  .backup-rx-details {
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid var(--color-border);
-  }
-
-  .backup-rx-channels {
-    display: grid;
-    gap: 4px;
-    margin-top: 8px;
-  }
-
-  .note {
-    margin: 0;
-    color: var(--color-text-soft);
+  .title {
+    padding-left: 8px;
   }
 
   .badge {
@@ -541,35 +529,16 @@
     border-color: var(--color-danger, var(--color-border-accent));
   }
 
-  /* Matches Section.svelte's own header icon button exactly, for the
-     expand/collapse chevron - same look as the rest of the app's
-     disclosure controls, not a one-off. */
-  .icon {
-    background: none;
-    border: none;
-    padding: 8px;
-    margin: 0;
-    font-size: 1rem;
-    cursor: pointer;
+  .help-btn {
+    padding: 4px 8px;
+    min-width: 60px;
+  }
 
-    -webkit-tap-highlight-color: transparent;
+  .grow {
+    flex-grow: 1;
+  }
 
-    :global(html[data-theme="light"]) & {
-      color: var(--color-neutral-400);
-    }
-
-    :global(html[data-theme="dark"]) & {
-      color: var(--color-neutral-500);
-    }
-
-    &:hover {
-      :global(html[data-theme="light"]) & {
-        color: var(--color-neutral-500);
-      }
-
-      :global(html[data-theme="dark"]) & {
-        color: var(--color-neutral-500);
-      }
-    }
+  .btn {
+    @extend %button;
   }
 </style>
