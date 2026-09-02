@@ -280,6 +280,7 @@ tab.initialize = function (callback) {
         { id: 524288,excl: 524288,  name: 'FBUS_OUT',             type: portTypes.AUTO },
         { id: 1048576, excl: 1048576, name: 'SPORT_MASTER',       type: portTypes.AUTO },
         { id: 2097152,excl: 2097152,name: 'SRXL2_ESC',            type: portTypes.AUTO },
+        { id: 4194304,excl: 4194304,name: 'CRSF_SENSORS',         type: portTypes.AUTO },
         { id: 4,     excl: 4668,    name: 'TELEMETRY_FRSKY',      type: portTypes.TELEM },
         { id: 32,    excl: 4668,    name: 'TELEMETRY_SMARTPORT',  type: portTypes.TELEM },
         { id: 4096,  excl: 4668,    name: 'TELEMETRY_IBUS',       type: portTypes.TELEM },
