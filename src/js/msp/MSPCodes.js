@@ -214,4 +214,12 @@ export const MSPCodes = {
 //  MSP2_GET_VTX_DEVICE_STATUS:         0x3004,
     MSP2_SMARTFUEL_CONFIG:              0x4000,
     MSP2_SET_SMARTFUEL_CONFIG:          0x4001,
+
+    // action: 0 = poll only, 1 = (re)start a scan, 2 = stop/cancel - cycles
+    // ESC telemetry halfDuplex/pinSwap live for the already-configured
+    // protocol and reports which combo (if any) produces a valid frame.
+    // 0x5F0C, not 0x5F0B - that's claimed by MSP2_RX_SERIAL_TRIAL on the
+    // sibling feature/rx-wiring-autodetect branch, cut from master
+    // independently.
+    MSP2_ESC_SENSOR_TRIAL:                0x5F0C,
 };
