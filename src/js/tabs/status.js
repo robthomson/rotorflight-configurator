@@ -1,7 +1,11 @@
 import semver from "semver";
 
 import { Model } from "@/js/model.js";
-import { API_VERSION_12_8, API_VERSION_12_9 } from "@/js/configurator.svelte.js";
+import {
+    API_VERSION_12_8,
+    API_VERSION_12_9,
+    API_VERSION_12_10,
+} from "@/js/configurator.svelte.js";
 import { FC } from "@/js/fc.svelte.js";
 import * as flightStats from "@/js/flight-stats.js";
 import { GUI } from "@/js/gui.js";
@@ -79,6 +83,7 @@ tab.getDisarmFlags = function () {
         'ACC_CALIB',
         'MOTOR_PROTO',
         ...(semver.gte(FC.CONFIG.apiVersion, API_VERSION_12_9) ? ['OVERRIDE'] : []),
+        ...(semver.gte(FC.CONFIG.apiVersion, API_VERSION_12_10) ? ['BACKUP_RX'] : []),
         'ARM_SWITCH'
     ];
 };
