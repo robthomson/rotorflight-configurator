@@ -9,6 +9,8 @@
 // "FLYROTOR 150A" hardware model (escmfg/flrtr/pages/esc_other.lua:31-46) -- not replicated
 // here as a first pass; all fields are always shown.
 
+import { API_VERSION_12_7 } from "@/js/configurator.svelte.js";
+
 import { registerManufacturer } from "./registry.js";
 
 const escMode = ["ESC Governor", "Linear Throttle", "RF Gyro Governor"];
@@ -176,6 +178,7 @@ const flyrotor = {
     group: "native",
     signature: 0x73,
     escSensorProtocolIds: [10],
+    minApiVersion: API_VERSION_12_7,
     fields,
     pages,
     simResponse,

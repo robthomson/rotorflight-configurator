@@ -7,6 +7,8 @@
 // the Lua source instead of the declarative FIELD_SPEC scale/offset columns, so they're
 // handled here via parseRead/buildWritePayload overrides rather than generic field metadata.
 
+import { API_VERSION_12_9 } from "@/js/configurator.svelte.js";
+
 import { computeLayout, writeRawField, buildPayload } from "../engine.js";
 import { registerManufacturer } from "./registry.js";
 
@@ -228,6 +230,7 @@ const am32 = {
     group: "bridged",
     signature: 0xC2,
     escSensorProtocolIds: [1],
+    minApiVersion: API_VERSION_12_9,
     fields,
     pages,
     parseRead,

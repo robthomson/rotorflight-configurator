@@ -12,6 +12,8 @@
 // layout-name-prefix byte read from a fixed offset (escmfg/bluejay/init.lua:supportsLedControl);
 // not replicated here -- led_control is always shown.
 
+import { API_VERSION_12_9 } from "@/js/configurator.svelte.js";
+
 import { buildPayload, computeLayout, writeRawField, resolveEnumLabel } from "../engine.js";
 import { registerManufacturer } from "./registry.js";
 
@@ -288,6 +290,7 @@ const bluejay = {
     signature: 0xC1,
     disambiguate,
     escSensorProtocolIds: [1],
+    minApiVersion: API_VERSION_12_9,
     fields,
     pages,
     parseRead,

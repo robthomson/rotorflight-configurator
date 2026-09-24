@@ -15,6 +15,8 @@
 // offsets (selectItemLayout below) are unaffected by that layer, so this does not change what
 // gets written to the ESC, only how permissive the on-screen option lists are.
 
+import { API_VERSION_12_7 } from "@/js/configurator.svelte.js";
+
 import { registerManufacturer } from "./registry.js";
 
 const flightMode = ["Fixed Wing", "Heli Ext Governor", "Heli Governor", "Heli Governor Store"];
@@ -201,6 +203,7 @@ const hw5 = {
     group: "native",
     signature: 0xFD,
     escSensorProtocolIds: [3],
+    minApiVersion: API_VERSION_12_7,
     fields,
     pages,
     parseRead,

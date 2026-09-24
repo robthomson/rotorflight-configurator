@@ -4,6 +4,8 @@
 // the user to manually power-cycle the ESC as part of the workflow (init.lua: powerCycle=true).
 
 import { buildPayload } from "../engine.js";
+import { API_VERSION_12_7 } from "@/js/configurator.svelte.js";
+
 import { registerManufacturer } from "./registry.js";
 
 const escMode = ["Heli Governor", "Heli Governor (stored)", "VBar Governor", "External Governor", "Airplane mode", "Boat mode", "Quad mode"];
@@ -127,6 +129,7 @@ const scorpion = {
     group: "native",
     signature: 0x53,
     escSensorProtocolIds: [4],
+    minApiVersion: API_VERSION_12_7,
     powerCycleRequired: true,
     fields,
     pages,

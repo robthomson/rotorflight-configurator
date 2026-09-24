@@ -5,6 +5,8 @@
 // diffing), but each gets its own self-contained file here rather than a shared factory, since
 // they're independent ESC families that may diverge over time.
 
+import { API_VERSION_12_8 } from "@/js/configurator.svelte.js";
+
 import { registerManufacturer } from "./registry.js";
 
 const govMode = ["ESC Governor", "External Governor", "Fixed Wing"];
@@ -129,6 +131,7 @@ const xdfly = {
     group: "native",
     signature: 0xA6,
     escSensorProtocolIds: [12],
+    minApiVersion: API_VERSION_12_8,
     fields,
     pages,
     simResponse,

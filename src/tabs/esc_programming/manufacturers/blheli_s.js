@@ -8,6 +8,8 @@
 // display-space (1000-2020us) with no scale/offset set, so replicating the override keeps the
 // min/max numbers directly usable without an extra raw<->display bounds conversion.
 
+import { API_VERSION_12_9 } from "@/js/configurator.svelte.js";
+
 import { buildPayload, computeLayout, writeRawField } from "../engine.js";
 import { registerManufacturer } from "./registry.js";
 
@@ -165,6 +167,7 @@ const blheliS = {
     signature: 0xC1,
     disambiguate,
     escSensorProtocolIds: [1],
+    minApiVersion: API_VERSION_12_9,
     fields,
     pages,
     parseRead,

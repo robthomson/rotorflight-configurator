@@ -10,6 +10,8 @@
 // but the actual FIELD_SPEC field name is "motor_poll_pairs" (double "l") -- a mismatch in the
 // source itself. Ported here using the real field name so the value actually binds.
 
+import { API_VERSION_12_7 } from "@/js/configurator.svelte.js";
+
 import { registerManufacturer } from "./registry.js";
 
 const escMode = ["Free (Attention!)", "Heli Ext Governor", "Heli Governor", "Heli Governor Store", "Aero Glider", "Aero Motor", "Aero F3A"];
@@ -177,6 +179,7 @@ const yge = {
     group: "native",
     signature: 0xA5,
     escSensorProtocolIds: [9],
+    minApiVersion: API_VERSION_12_7,
     fields,
     pages,
     simResponse,
