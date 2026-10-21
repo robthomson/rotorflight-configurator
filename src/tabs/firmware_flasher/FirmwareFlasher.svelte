@@ -16,7 +16,6 @@
     BACKUP_TYPES,
     backupOverSerial,
     isRotorflightBackup,
-    readHardwareConfigOverSerial,
     restoreOverSerial,
     saveBackupToFile,
   } from "@/js/cli_backup.js";
@@ -54,11 +53,8 @@
   import {
     buildTargetsByManufacturer,
     cleanUnifiedConfigFile,
-    customTarget,
-    customTargetMcu,
     grabBuildNameFromConfig,
     grabKeywordFromConfig,
-    hardwareConfigFromCliOutput,
     hasUnifiedTargetBuild,
     injectDefaultDesign,
     injectTargetInfo,
@@ -66,7 +62,6 @@
     parseUnifiedTargets,
     populateBuilds,
     processBoardOptions,
-    supportsUnifiedTargets,
     versionOptions,
   } from "./util.js";
 
@@ -153,14 +148,6 @@
   // (e.g. the port is held by another program) -- see onDetectConnect().
   let detectFailDetail = $state("");
   let detectedBoardName = $state("");
-  // A "custom" detect: the board answered, but has no published target (a
-  // DIY build, typically) while its MCU does have a firmware build. Rather
-  // than dead-ending there, the board's own hardware config can be read back
-  // over the CLI and flashed in place of a target config -- see
-  // onClickReadBoardConfig(). customBoard is what MSP_BOARD_INFO reported;
-  // customConfigStatus is "idle" | "reading" | "ready" | "empty" | "failed".
-  let customBoard = $state(null);
-  let customConfigStatus = $state("idle");
   let manualSelectionShown = $state(false);
   let showManualBoardSelect = $derived(
     manualSelectionShown ||
@@ -176,21 +163,8 @@
   // dropdown either). Drives one confirmation message shared by both
   // paths, rather than Detect having its own and manual selection having
   // none at all.
-  let selectedBoardValid = $derived(isSelectableBoard(selectedBoard));
-
-  // Every MCU with a unified firmware build, offered as a "Custom" board in
-  // the dropdown -- the way onto that build for a DIY board Detect can't
-  // reach (e.g. a blank one sitting in DFU).
-  let customMcus = $derived(
-    Object.keys(releases).filter(hasUnifiedBuildFor).sort(),
-  );
-
-  let selectedBoardLabel = $derived(
-    customTargetMcu(selectedBoard)
-      ? $i18n.t("firmwareFlasherCustomBoardLabel", {
-          mcu: customTargetMcu(selectedBoard),
-        })
-      : selectedBoard,
+  let selectedBoardValid = $derived(
+    selectedBoard !== "0" && !!unifiedConfigs[selectedBoard],
   );
 
   // Whether the user has actually done something on this step, rather than
@@ -491,7 +465,6 @@
     showReleaseDetails = false;
     detectStatus = null;
     detectedBoardName = "";
-    clearCustomBoard();
     manualSelectionShown = false;
     clearBufferedFirmware();
     selectedBoard = "0";
@@ -525,14 +498,8 @@
     // An active flash or an active backup/restore isn't interruptible --
     // block navigating away mid-operation, since it's talking to real
     // hardware and abandoning it isn't something a step change can safely
-    // undo. Same for reading a DIY board's config over the CLI.
-    if (
-      flashInProgress ||
-      backupOrRestoreBusy ||
-      customConfigStatus === "reading"
-    ) {
-      return;
-    }
+    // undo.
+    if (flashInProgress || backupOrRestoreBusy) return;
     // StepIndicator already disables markers past `wizardStep`, but guard
     // here too since this is also reachable from plain Back/Next clicks.
     if (step < 1 || step > WIZARD_STEPS.length) return;
@@ -695,7 +662,6 @@
   function onBuildTypeChange(index) {
     buildTypeIndex = Number(index);
     selectedBoard = "0";
-    clearCustomDetect();
     firmwareVersionEntries = [];
     selectedVersion = "0";
     loadBuildType(buildTypeIndex);
@@ -704,7 +670,6 @@
   function onClickRefreshReleases() {
     if (releasesLoading || GUI.connect_lock) return;
     selectedBoard = "0";
-    clearCustomDetect();
     firmwareVersionEntries = [];
     selectedVersion = "0";
     loadBuildType(buildTypeIndex, true);
@@ -808,7 +773,7 @@
     if (config.rememberLastSelectedBoard) {
       initialBoard = config.selectedBoard;
     }
-    if (initialBoard && isSelectableBoard(initialBoard)) {
+    if (initialBoard && unifiedConfigs[initialBoard]) {
       selectedBoard = initialBoard;
       await onBoardChange(initialBoard);
     }
@@ -844,7 +809,6 @@
     releaseInfoVisible = false;
 
     if (!localFirmwareLoaded) setFlashingEnabled(false);
-    clearCustomBoard();
 
     if (target === "0") {
       clearBufferedFirmware();
@@ -858,22 +822,6 @@
     selectedVersion = "0";
 
     const builds = {};
-
-    // Picked explicitly, so its versions are listed right away (unlike a
-    // "custom" Detect, see onClickReadBoardConfig()) -- a blank board in DFU
-    // has no config to read, and flashing bare and setting the board up in
-    // the CLI afterwards is a legitimate choice. A .config loaded on the
-    // Firmware step, or one read off the board here, still gets combined.
-    const mcu = customTargetMcu(target);
-    if (mcu) {
-      if (!isConfigLocal) unifiedTarget = {};
-      bareBoard = mcu;
-      customBoard = { mcu, boardName: "", manufacturerId: "" };
-      populateBuilds(builds, mcu, releases[mcu]);
-      showVersions(builds);
-      return;
-    }
-
     const targetSpec = unifiedConfigs[target];
 
     if (targetSpec) {
@@ -998,10 +946,6 @@
       populateBuilds(builds, undefined, releases[target]);
     }
 
-    showVersions(builds);
-  }
-
-  function showVersions(builds) {
     firmwareVersionEntries = versionOptions(builds, (key, opts) =>
       $i18n.t(key, opts),
     );
@@ -1102,7 +1046,7 @@
 
     releaseInfo = {
       manufacturer: unifiedTarget.manufacturerId,
-      target: selectedBoardLabel,
+      target: selectedBoard,
       version: summary.version,
       versionUrl: summary.releaseUrl,
       date: summary.date,
@@ -1501,19 +1445,7 @@
       flashFirmware(parsedHex, backupText, backupPort);
       GUI.saveDefaultTab("status");
     } catch (e) {
-      console.error("Flashing failed", e);
-      // Most likely ConfigInserter's "Custom defaults area too small", with
-      // a config read off a DIY board -- nothing has size-checked that
-      // against the firmware the way published targets are. Shown as a
-      // localized message rather than e.message, since it renders as HTML.
-      setFlashingMessage(
-        $i18n.t(
-          /Custom defaults area too small/.test(e?.message)
-            ? "firmwareFlasherConfigTooLarge"
-            : "firmwareFlasherFlashFailed",
-        ),
-        FLASH_MESSAGE_TYPES.INVALID,
-      );
+      console.log(`Flashing failed: ${e.message}`);
     }
   }
 
@@ -1616,10 +1548,7 @@
 
   async function handleDetectResponse() {
     let board = FC.CONFIG.boardName;
-    const mcu = FC.CONFIG.targetName;
-    // A board running a plain MCU build (a DIY board set up by hand over the
-    // CLI) reports no board_name at all -- the MCU is still enough to go on.
-    if (!board && !mcu) return;
+    if (!board) return;
 
     clearTimeout(detectTimer);
 
@@ -1644,154 +1573,21 @@
     }
 
     const target = `${FC.CONFIG.manufacturerId}-${board}`;
-    const targetAvailable = !!board && !!unifiedConfigs[target];
-    const customAvailable = !targetAvailable && hasUnifiedBuildFor(mcu);
-    detectedBoardName = board || mcu;
-    // A board with no published target lands on its MCU's Custom entry --
-    // the same thing picking it from the dropdown does. "custom" is only set
-    // once onBoardChange() has filled in customBoard, which the "custom"
-    // panel reads.
-    const selected = customAvailable ? customTarget(mcu) : target;
-    if (!customAvailable) {
-      detectStatus = targetAvailable ? "found" : "notFound";
-    }
-    selectedBoard = selected;
-    await onBoardChange(selected);
-
-    if (customAvailable) {
-      customBoard = {
-        mcu,
-        boardName: board,
-        manufacturerId: FC.CONFIG.manufacturerId,
-      };
-      detectStatus = "custom";
-    }
+    const targetAvailable = !!unifiedConfigs[target];
+    detectedBoardName = board;
+    detectStatus = targetAvailable ? "found" : "notFound";
+    selectedBoard = target;
+    await onBoardChange(target);
 
     GUI.log(
       $i18n.t(
         targetAvailable
           ? "firmwareFlasherBoardDetectionSucceeded"
-          : customAvailable
-            ? "firmwareFlasherBoardDetectionCustom"
-            : "firmwareFlasherBoardDetectionBoardNotFound",
-        { boardName: detectedBoardName, mcu },
+          : "firmwareFlasherBoardDetectionBoardNotFound",
+        { boardName: board },
       ),
     );
     disconnectDetect();
-  }
-
-  function hasUnifiedBuildFor(mcu) {
-    return !!releases?.[mcu]?.some((d) => supportsUnifiedTargets(d.version));
-  }
-
-  function isSelectableBoard(target) {
-    if (!target || target === "0") return false;
-    const mcu = customTargetMcu(target);
-    return mcu ? hasUnifiedBuildFor(mcu) : !!unifiedConfigs[target];
-  }
-
-  function clearCustomBoard() {
-    customBoard = null;
-    customConfigStatus = "idle";
-  }
-
-  // For the resets that drop selectedBoard back to "0" without going through
-  // onBoardChange(): a "custom" Detect result would otherwise keep offering
-  // to read a config for a board that's no longer selected.
-  function clearCustomDetect() {
-    clearCustomBoard();
-    if (detectStatus === "custom") {
-      detectStatus = null;
-      detectedBoardName = "";
-    }
-  }
-
-  // Reads the detected board's hardware config back over the CLI and uses it
-  // as the target config, with the plain MCU build as the firmware -- the
-  // same pairing a rotorflight-targets .config and its MCU build make. Only
-  // offered on an explicit click, since entering/leaving the CLI reboots the
-  // board. The MCU's versions are already listed by then (see
-  // onBoardChange()) -- a board still running the bare MCU build has
-  // nothing to read, and flashing it bare is the only way forward there.
-  async function onClickReadBoardConfig() {
-    if (GUI.connect_lock || !customBoard) return;
-
-    customConfigStatus = "reading";
-    detectFailDetail = "";
-    GUI.connect_lock = true;
-    setFlashingEnabled(false);
-
-    const port = String(portPickerElement().value);
-    const baud = getIntegerValue("select#baud") ?? 115200;
-
-    let text;
-    try {
-      text = await readHardwareConfigOverSerial(port, baud);
-    } catch (error) {
-      // Falls through to the failure path below, so Retry stays available
-      // rather than the wizard sitting on "reading" for good.
-      console.warn("Reading hardware config failed", error);
-      text = null;
-    } finally {
-      GUI.connect_lock = false;
-    }
-
-    // The wizard was reset (e.g. back to Connect) while the read ran.
-    if (!customBoard) return;
-
-    const cfg = hardwareConfigFromCliOutput(text);
-    if (!cfg || grabBuildNameFromConfig(cfg) !== customBoard.mcu) {
-      setFlashingEnabled(!!parsedHex);
-      // The CLI answered with a Rotorflight banner but no resources, timers
-      // or DMA at all: a board still on the bare MCU build's defaults.
-      if (!cfg && isRotorflightBackup(text)) {
-        customConfigStatus = "empty";
-        GUI.log($i18n.t("firmwareFlasherBoardConfigEmpty"));
-        return;
-      }
-      if (!text) detectFailDetail = portFailDetail();
-      customConfigStatus = "failed";
-      GUI.log($i18n.t("firmwareFlasherBoardConfigReadFailed"));
-      return;
-    }
-
-    const { mcu, boardName, manufacturerId } = customBoard;
-    const make =
-      grabKeywordFromConfig(cfg, "manufacturer_id", "") || manufacturerId;
-    const name =
-      boardName || grabKeywordFromConfig(cfg, "board_name", "") || mcu;
-    const fileName = `${make ? `${make}-` : ""}${name}.config`;
-    const date = new Date().toISOString();
-    unifiedTarget = {
-      config: injectTargetInfo(
-        injectDefaultDesign(cfg, "BTFL"),
-        fileName,
-        name,
-        make,
-        { commitHash: "board", date },
-      ),
-      manufacturerId: make,
-      fileName,
-      date,
-    };
-    isConfigLocal = false;
-    bareBoard = mcu;
-
-    // populateBuilds() treats a missing manufacturer as a legacy
-    // (pre-unified) build -- this is a unified one, just one whose config
-    // came off the board rather than rotorflight-targets.
-    const builds = {};
-    populateBuilds(builds, make || mcu, releases[mcu]);
-    showVersions(builds);
-    // showVersions() leaves a loaded local .hex alone (see
-    // onVersionChange()), so it won't undo the setFlashingEnabled(false)
-    // from the start of the read either.
-    if (localFirmwareLoaded) flashingMessageLocal();
-
-    customConfigStatus = "ready";
-    GUI.log(
-      $i18n.t("firmwareFlasherBoardConfigReadOk", { boardName: name, mcu }),
-    );
   }
 
   function disconnectDetect() {
@@ -1906,46 +1702,6 @@
       {$i18n.t("firmwareFlasherNoPortNative")}
     {/if}
   </p>
-{/snippet}
-
-<!-- "Read hardware config from board" -- shared by a "custom" Detect result
-     and a Custom MCU picked from the dropdown. -->
-{#snippet boardConfigReader()}
-  {#if customConfigStatus === "failed"}
-    <p class="detect-fallback-notice">
-      {$i18n.t("firmwareFlasherBoardConfigReadFailed")}
-      {#if detectFailDetail}
-        <br />
-        <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-        {@html detectFailDetail}
-      {/if}
-    </p>
-  {/if}
-  <div class="detect-cta">
-    {#if customConfigStatus === "reading"}
-      <p class="status">
-        <span class="spinner"></span>
-        {$i18n.t("firmwareFlasherBoardConfigReading")}
-      </p>
-    {:else if customConfigStatus === "empty"}
-      <p class="port-notice info">
-        <em class="fas fa-info-circle"></em>
-        {$i18n.t("firmwareFlasherBoardConfigEmpty")}
-      </p>
-    {:else if portIsDfu}
-      <p class="port-notice info">
-        <em class="fas fa-info-circle"></em>
-        {$i18n.t("firmwareFlasherBoardConfigReadUnavailableDfu")}
-      </p>
-    {:else if needsPortSelection}
-      {@render portPrompt()}
-    {:else}
-      <button class="btn primary" onclick={onClickReadBoardConfig}>
-        <em class="fas fa-download"></em>
-        {$i18n.t("firmwareFlasherBoardConfigReadCta")}
-      </button>
-    {/if}
-  </div>
 {/snippet}
 
 {#if legacyMode}
@@ -2091,45 +1847,6 @@
               >
                 {$i18n.t("firmwareFlasherSelectBoardManually")}
               </button>
-            {:else if detectStatus === "custom" && !manualSelectionShown}
-              {#if customConfigStatus === "ready"}
-                <p class="detect-fallback-notice ok">
-                  <em class="fas fa-check"></em>
-                  {$i18n.t("firmwareFlasherBoardConfigReadOk", {
-                    boardName: detectedBoardName,
-                    mcu: customBoard?.mcu,
-                  })}
-                </p>
-              {:else}
-                <p class="detect-fallback-notice">
-                  <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                  {@html $i18n.t("firmwareFlasherBoardDetectionCustom", {
-                    boardName: detectedBoardName,
-                    mcu: customBoard?.mcu,
-                  })}
-                </p>
-                {@render boardConfigReader()}
-              {/if}
-              {#if customConfigStatus !== "reading"}
-                <button
-                  class="details-toggle"
-                  onclick={() => {
-                    manualSelectionShown = true;
-                    detectStatus = null;
-                    detectedBoardName = "";
-                    // Drops the config read off the board along with the
-                    // MCU build's version list -- neither belongs to
-                    // whatever gets picked from the dropdown instead.
-                    clearCustomBoard();
-                    clearBufferedFirmware();
-                    firmwareVersionEntries = [];
-                    selectedVersion = "0";
-                    selectedBoard = "0";
-                  }}
-                >
-                  {$i18n.t("firmwareFlasherSelectBoardManually")}
-                </button>
-              {/if}
             {:else if !showManualBoardSelect}
               <div class="detect-cta">
                 {#if detectStatus === "detecting"}
@@ -2221,15 +1938,6 @@
                       {/each}
                     </optgroup>
                   {/each}
-                  {#if customMcus.length > 0}
-                    <optgroup
-                      label={$i18n.t("firmwareFlasherCustomBoardGroup")}
-                    >
-                      {#each customMcus as mcu (mcu)}
-                        <option value={customTarget(mcu)}>{mcu}</option>
-                      {/each}
-                    </optgroup>
-                  {/if}
                 </select>
               {/if}
               <div class="description-row">
@@ -2280,25 +1988,14 @@
             <em class="fas fa-check"></em>
             {#if unifiedTarget.config}
               {$i18n.t("firmwareFlasherBoardWillCombineConfig", {
-                target: selectedBoardLabel,
+                target: selectedBoard,
               })}
             {:else}
               {$i18n.t("firmwareFlasherBoardSelectedPlain", {
-                target: selectedBoardLabel,
+                target: selectedBoard,
               })}
             {/if}
           </p>
-        {/if}
-
-        <!-- A Custom MCU on its own flashes with no pins/timers/DMA set up
-           at all -- say so, and offer to read them off the board first. -->
-        {#if showManualBoardSelect && customBoard && !unifiedTarget.config}
-          <p class="detect-fallback-notice">
-            {$i18n.t("firmwareFlasherCustomBoardNoConfig", {
-              mcu: customBoard.mcu,
-            })}
-          </p>
-          {@render boardConfigReader()}
         {/if}
 
         {#if showManualBoardSelect}
@@ -2337,9 +2034,7 @@
              accident rather than by choice. -->
           <button
             class="btn primary"
-            disabled={boardDetectionInProgress ||
-              customConfigStatus === "reading" ||
-              !boardStepEngaged}
+            disabled={boardDetectionInProgress || !boardStepEngaged}
             onclick={onWizardNext}
           >
             {$i18n.t("firmwareFlasherWizardNext")}
@@ -2440,7 +2135,7 @@
           <p class="detect-fallback-notice ok">
             <em class="fas fa-check"></em>
             {$i18n.t("firmwareFlasherLocalWillCombineConfig", {
-              target: selectedBoardLabel,
+              target: selectedBoard,
             })}
           </p>
         {/if}

@@ -415,9 +415,7 @@ export const serial = {
 
             if (__BACKEND__ === "web" && self.connectionType === 'virtual') {
                 // Nothing to write to: the Virtual FC answers MSP itself.
-                if (_callback) {
-                    _callback({ bytesSent: 0 });
-                }
+                _callback?.({ bytesSent: 0 });
                 self.outputBuffer.shift();
 
                 if (self.outputBuffer.length) {
@@ -432,9 +430,7 @@ export const serial = {
                 const writeFn = self.webSerialWriter ? writeWebSerial : writeWebBluetooth;
                 writeFn(self, _data).then((bytesSent) => {
                     self.bytesSent += bytesSent;
-                    if (_callback) {
-                        _callback({ bytesSent });
-                    }
+                    _callback?.({ bytesSent });
                     self.outputBuffer.shift();
 
                     if (self.outputBuffer.length) {
@@ -444,9 +440,7 @@ export const serial = {
                     }
                 }).catch((error) => {
                     self.errorHandler(error.name || 'undefined', 'send');
-                    if (_callback) {
-                        _callback({ bytesSent: 0, error: error.name || 'undefined' });
-                    }
+                    _callback?.({ bytesSent: 0, error: error.name || 'undefined' });
                 });
                 return;
             }
@@ -457,13 +451,6 @@ export const serial = {
 
                 if (sendInfo === undefined) {
                     console.log('undefined send error');
-                    // Same as the web backend's send error: disconnect, which
-                    // also empties outputBuffer and clears transmitting. Just
-                    // returning left this item at the head of the queue with
-                    // transmitting still set, so every later send was queued
-                    // behind it and its callback never fired (e.g. the CLI's
-                    // `exit` in CliEngine.close(), hanging whatever awaited it).
-                    self.errorHandler('undefined', 'send');
                     if (_callback) {
                         _callback({
                             bytesSent: 0,
