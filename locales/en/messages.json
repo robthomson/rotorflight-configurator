@@ -2650,7 +2650,7 @@
         "message": "Inverted"
     },
     "receiverBackupRxInvertedHelp": {
-        "message": "Off applies whichever electrical inversion the selected protocol normally needs (SBUS is naturally inverted; FBUS, FPort, and FPort2 are not). Turn on only if this wire is inverted relative to that protocol's normal wiring, e.g. via an external inverter."
+        "message": "Off applies whichever electrical inversion the selected protocol normally needs (SBUS is naturally inverted; FBUS and FPort are not). Turn on only if this wire is inverted relative to that protocol's normal wiring, e.g. via an external inverter."
     },
     "receiverBackupRxHalfDuplex": {
         "message": "Half-Duplex"
